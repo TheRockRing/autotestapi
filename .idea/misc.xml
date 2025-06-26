@@ -6,4 +6,7 @@
   <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.13 (backend-automation)" project-jdk-type="Python SDK">
     <output url="file://$PROJECT_DIR$/out" />
   </component>
+  <component name="ProjectType">
+    <option name="id" value="jpab" />
+  </component>
 </project>
