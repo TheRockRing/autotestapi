@@ -4,6 +4,7 @@ import requests
 from behave import given, when, then
 import json
 import re
+import time
 
 endpoint_response_map = {}
 field_value_map = {}
@@ -149,7 +150,7 @@ def step_impl_(context, endpoint):
         endpoint_response_map[endpoint] = response_json
         print(f"✅ JSON из {endpoint}:\n{json.dumps(response_json, indent=2, ensure_ascii=False)}")
         print(response_json)
-        print("check")
+
     except Exception as e:
         print(f"❌ Не удалось распарсить JSON с {endpoint}: {e}")
         print("📦 Ответ:", context.response.text)
@@ -216,3 +217,202 @@ def step_impl(context):
 #
 #     context.response = context.api_client.get_with_auth(endpoint)
 #      endpoint_response_map[endpoint] = context.response.json()
+
+
+@then('беру из ответа "{endpoint}" offerId из {index:d}-го оффера')
+def step_impl(context, endpoint, index):
+    data = endpoint_response_map[endpoint]
+    offer_id = data['offerDTOList'][index]['offerId']
+    field_value_map['offerId'] = offer_id
+    print(f"📌 Сохранили offerId = {offer_id}")
+
+
+@when('я отправляю POST запрос на "/agent-api/v1/customer-offer/calculate" с offerId и leadId')
+def step_impl(context):
+    offer_id = field_value_map.get("offerId")
+    lead_id = field_value_map.get("leadId")
+
+    assert offer_id, "❌ offerId не найден в field_value_map"
+    assert lead_id, "❌ leadId не найден в field_value_map"
+
+    endpoint = "/agent-api/v1/customer-offer/calculate"
+    payload = {
+        "leadId": lead_id,
+        "requiredLoanAmount": 1000000,
+        "offerId": offer_id
+    }
+
+    context.response = context.api_client.post_with_auth(endpoint, json=payload)
+    print("📤 calculate payload:", json.dumps(payload, indent=2, ensure_ascii=False))
+    print("📥 Ответ:", context.response.status_code, context.response.text)
+
+@when('я отправляю POST запрос на "/agent-api/v1/offer-store/offers/{{{leadId}}}" и сохраняю offerId с типом "[CEL][Cash Xsell][Real]"')
+def step_impl(context):
+    import json
+
+    # Подставляем leadId в endpoint
+    lead_id = field_value_map.get("leadId")
+    assert lead_id, "❌ leadId не найден в field_value_map"
+    endpoint = f"/agent-api/v1/offer-store/offers/{lead_id}"
+
+    # Выполняем POST запрос
+    context.response = context.api_client.post_with_auth(endpoint)
+
+    try:
+        response_json = context.response.json()
+        endpoint_response_map[endpoint] = response_json
+
+        print(f"✅ Ответ от {endpoint}:\n{json.dumps(response_json, indent=2, ensure_ascii=False)}")
+
+        offers = response_json.get("offerDTOList", [])
+        found = False
+
+        for offer in offers:
+            if offer.get("offerTypeName") == "[CEL][Cash Xsell][Real]":
+                offer_id = offer.get("offerId")
+                assert offer_id, "❌ offerId отсутствует"
+                field_value_map["offerId"] = offer_id
+
+                # Сохраняем в файл
+                with open("offerId_Cash_Xsell_Real.txt", "w", encoding="utf-8") as f:
+                    f.write(offer_id)
+
+                print(f"💾 Сохранён offerId: {offer_id} в offerId_Cash_Xsell_Real.txt")
+                found = True
+                break
+
+        if not found:
+            print("⚠️ Не найдено предложение с типом '[CEL][Cash Xsell][Real]'")
+
+    except Exception as e:
+        print(f"❌ Ошибка при обработке JSON: {e}")
+        print("📦 Текст ответа:", context.response.text)
+
+@when('я отправляю POST запрос на "/agent-api/v1/customer-offer/calculate" с сохранёнными leadId и offerId')
+def step_impl(context):
+    lead_id = field_value_map.get("leadId")
+    assert lead_id, "❌ leadId не найден в field_value_map"
+
+
+    for _ in range(0, max_wait, poll_interval):
+        endpoint = f"/agent-api/v1/offer-store/offers/{lead_id}"
+        response = context.api_client.get_with_auth(endpoint)
+сохранёнными leadId и offerId
+        try:
+            response_json = response.json()
+            offers = response_json.get("offerDTOList", [])
+
+            for offer in offers:
+                if offer.get("offerTypeName") == "[CEL][Cash Xsell][Real]":
+                    offer_id = offer.get("offerId")
+                    field_value_map["offerId"] = offer_id
+                    endpoint_response_map[endpoint] = response_json
+                    print(f"✅ Найден offerId: {offer_id}")
+                    break
+
+            if offer_id:
+                break
+
+        except Exception as e:
+            print(f"⚠️ Ошибка при чтении офферов: {e}")
+
+        time.sleep(poll_interval)
+
+    assert offer_id, f"❌ Не удалось найти оффер с типом '[CEL][Cash Xsell][Real]' за {max_wait} секунд"
+
+    # 📦 Отправка запроса calculate
+    payload = {
+        "leadId": lead_id,
+        "offerId": offer_id,
+        "requiredLoanAmount": 1_000_000
+    }
+
+    print("📦 Тело запроса:")
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+    response = context.api_client.post_with_auth(
+        "/agent-api/v1/customer-offer/calculate",
+        json=payload
+    )
+
+    try:
+        response_json = response.json()
+        print("✅ Ответ:")
+        print(json.dumps(response_json, indent=2, ensure_ascii=False))
+        endpoint_response_map["/agent-api/v1/customer-offer/calculate"] = response_json
+    except Exception as e:
+        print(f"❌ Не удалось распарсить JSON: {e}")
+        print("📦 Ответ:", response.text)
+        endpoint_response_map["/agent-api/v1/customer-offer/calculate"] = None
+
+
+@when('в то время когда отправляю GET запрос на "/agent-api/v1/offer-store/offers/{{{leadId}}}" и сохраняю offerId с типом "[CEL][Cash Xsell][Real]"')
+def step_impl(context):
+    lead_id = field_value_map.get("leadId")
+    assert lead_id, "❌ leadId не найден в field_value_map"
+    endpoint = f"/agent-api/v1/offer-store/offers/{lead_id}"
+
+    max_wait = 15  # секунд
+    interval = 1   # секунд между попытками
+    start = time.time()
+    offer_id = None
+
+    while time.time() - start < max_wait:
+        context.response = context.api_client.get_with_auth(endpoint)
+
+        try:
+            response_json = context.response.json()
+            endpoint_response_map[endpoint] = response_json
+
+            offers = response_json.get("offerDTOList", [])
+            for offer in offers:
+                if offer.get("offerTypeName") == "[CEL][Cash Xsell][Real]":
+                    offer_id = offer.get("offerId")
+                    field_value_map["offerId"] = offer_id
+
+                    with open("offerId_Cash_Xsell_Real.txt", "w", encoding="utf-8") as f:
+                        f.write(offer_id)
+
+                    print(f"✅ Найден offerId: {offer_id}")
+                    return  # Успешно найден и сохранён
+
+        except Exception as e:
+            print(f"⚠️ Ошибка при разборе JSON: {e}")
+            print("📦 Ответ:", context.response.text)
+
+        print("⏳ Ждём генерацию офферов...")
+        time.sleep(interval)
+
+    # Если сюда дошли — оффер не найден за время ожидания
+    raise AssertionError("❌ Оффер типа '[CEL][Cash Xsell][Real]' не появился за 15 секунд")
+
+
+@then('когда поле "{field}" равен "{value}"')
+def step_impl(context, field, value):
+    assert hasattr(context, "last_get_endpoint"), "❌ context.last_get_endpoint не установлен. Сначала сделай GET запрос."
+
+    max_attempts = 20
+    interval = 3
+
+    for attempt in range(max_attempts):
+        response = context.api_client.get_with_auth(f"/agent-api/v1/lead-management/get-details/")
+        try:
+            json_body = response.json()
+            parts = field.split(".")
+            result = json_body
+            for f in parts:
+                assert f in result, f"❌ Поле '{f}' не найдено в ответе"
+                result = result[f]
+
+            if str(result) == value:
+                print(f"✅ [{attempt+1}] Поле '{field}' стало равно '{value}'")
+                return
+            else:
+                print(f"⏳ [{attempt+1}] Ожидание: '{field}' = '{value}', сейчас: '{result}'")
+
+        except Exception as e:
+            print(f"❌ Ошибка при парсинге JSON: {e}")
+
+        time.sleep(interval)
+
+    assert False, f"⛔ Поле '{field}' не стало '{value}' за {max_attempts * interval} секунд"
