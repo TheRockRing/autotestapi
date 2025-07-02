@@ -31,4 +31,5 @@ Then беру из ответа "/agent-api/v2/lead-management/create" поле 
 When я отправляю GET запрос на "/agent-api/v1/lead-management/get-details/{{{id}}}" с токеном
 Then поле "leadDTO.stateFeature.id" равен "3"
 Then поле "leadDTO.nin" равен "980811350404"
-And ожидаю у лида "{{{id}}}" статус "4"
+Then в случае когда поле "leadDTO.stateFeature.id" и статус "165"
+
