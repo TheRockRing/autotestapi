@@ -31,5 +31,27 @@ Then беру из ответа "/agent-api/v2/lead-management/create" поле 
 When я отправляю GET запрос на "/agent-api/v1/lead-management/get-details/{{{id}}}" с токеном
 Then поле "leadDTO.stateFeature.id" равен "3"
 Then поле "leadDTO.nin" равен "980811350404"
-Then в случае когда поле "leadDTO.stateFeature.id" и статус "165"
+Then Ожидаю когда поле "leadDTO.stateFeature.id" и статус "165"
+
+    When я отправляю GET запрос на "/agent-api/v2/lead-data-controller/doc/{{{id}}}" с токеном
+    Then статус ответа 200
+
+    When я отправляю GET запрос на "/agent-api/v1/offer-store/offers/{{{id}}}" с токеном
+    Then я извлекаю offerId с типом "[CEL][Cash Xsell][Real]" из ответа
+
+
+    When я отправляю POST запрос на "/agent-api/v1/customer-offer/calculate" с сохранёнными leadId и offerId
+    Then статус ответа 200
+
+    When я отправляю POST запрос на "/agent-api/v1/product-catalog/CEL" и токеном
+    """json
+    {
+        "0" : "XSTNF--FFP" ,
+        "1" : "XSTNF--FFP" ,
+        "2" : "XSTNF--FFP"
+    }
+    """
+
+    When я отправляю POST запрос на "/agent-api/v1/files/send-img-to-auth" с 3 фото
+    Then статус ответа 200
 
