@@ -12,3 +12,8 @@ Feature: Отправка на 1 блок данных
     When я отправляю POST запрос на "/agent-api/v1/customer-offer/calculate" с сохранёнными leadId и offerId
     Then статус ответа 200
 
+    When я отправляю POST запрос на "/agent-api/v1/application-management/update" с leadId и offerId
+#    Then статус ответа 200
+#
+     When я отправляю POST запрос на "/agent-api/v2/lead-management/update" с id и фото
+#    Then статус ответа 200

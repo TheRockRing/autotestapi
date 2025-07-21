@@ -207,6 +207,7 @@ def step_impl(context):
         f"Ожидался статус 200, но получен {context.response.status_code}"
 
 
+
 @then('я извлекаю offerId с типом "[CEL][Cash Xsell][Real]" из ответа')
 def step_impl(context):
     # Берём lead_id из field_value_map
@@ -246,6 +247,7 @@ def step_impl(context):
         print(f"❌ Ошибка при разборе ответа: {e}")
         print("📦 Ответ:", json.dumps(data, indent=2, ensure_ascii=False))
         raise
+
 
 
 # @then('я извлекаю offerId с типом "[CEL][Cash Xsell][Real]" из ответа "/agent-api/v1/offer-store/offers/6092400"')
@@ -385,4 +387,176 @@ def step_impl(context):
         print(f"❌ Ошибка при разборе ответа: {e}")
         print("📦 Текст ответа:", response.text)
         endpoint_response_map["/agent-api/v1/files/send-img-to-auth"] = None
+        raise
+
+
+@when('я отправляю POST запрос на "/agent-api/v1/application-management/update" с leadApplicationId')
+def step_impl(context):
+    lead_id = field_value_map.get("leadApplicationId")
+    offer_id = field_value_map.get("offerId")  # <--- добавили сюда
+    assert lead_id, "❌ leadApplicationId не найден в field_value_map"
+    assert offer_id, "❌ offerId не найден в field_value_map"
+
+    payload = {
+        "leadApplicationId": lead_id,
+        "creditAmount": 1000000,
+        "downPayment": 0,
+        "loanOption": "CASH_LOAN",
+        "offerProductCode": "XSTNF--FFP",
+        "offerProductType": "CEL",
+        "offerId": offer_id,
+        "actualAmount": None,
+        "creditType": None,
+        "incomeAmount": None,
+        "incomeAmountTypeCode": None,
+        "instantCardType": None,
+        "namePartner": None,
+        "offerRelipCode": None,
+        "paymentServiceCode": None,
+        "saleRoomCode": None,
+        "saleRoomName": None
+    }
+
+    print("📤 Тело запроса на update:")
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+    response = context.api_client.post_with_auth(
+        "/agent-api/v1/application-management/update",
+        payload
+    )
+    context.response = response
+
+    try:
+        json_response = response.json()
+        print("✅ Ответ на update:")
+        print(json.dumps(json_response, indent=2, ensure_ascii=False))
+        endpoint_response_map["/agent-api/v1/application-management/update"] = json_response
+    except Exception as e:
+        print("❌ Ошибка при разборе ответа:", e)
+        print("📦 Ответ:", response.text)
+        endpoint_response_map["/agent-api/v1/application-management/update"] = None
+        raise
+
+
+
+
+
+@when('я отправляю POST запрос на "/agent-api/v1/application-management/update" с leadId и offerId')
+def step_impl(context):
+    lead_id = field_value_map.get("id")  # предполагаем, что это leadApplicationId
+    offer_id = field_value_map.get("offerId")
+    offer_product_code = field_value_map.get("offerProductCode") or "XSTNF--FFP"
+    offer_product_type = "CEL"
+
+    assert lead_id, "❌ leadApplicationId (id) не найден в field_value_map"
+    assert offer_id, "❌ offerId не найден в field_value_map"
+
+    payload = {
+        "leadApplicationId": lead_id,
+        "creditAmount": 1000000,
+        "downPayment": 0,
+        "loanOption": "CASH_LOAN",
+        "offerProductCode": offer_product_code,
+        "offerProductType": offer_product_type,
+        "offerId": (offer_id),
+        "actualAmount": None,
+        "creditType": None,
+        "incomeAmount": None,
+        "incomeAmountTypeCode": None,
+        "instantCardType": None,
+        "namePartner": None,
+        "offerRelipCode": None,
+        "paymentServiceCode": None,
+        "saleRoomCode": None,
+        "saleRoomName": None
+    }
+
+    print("📤 Тело запроса на update:")
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+    response = context.api_client.post_with_auth(
+        "/agent-api/v1/application-management/update",
+        payload
+    )
+    context.response = response
+
+    try:
+        json_response = response.json()
+        print("✅ Ответ:")
+        print(json.dumps(json_response, indent=2, ensure_ascii=False))
+        endpoint_response_map["/agent-api/v1/application-management/update"] = json_response
+    except Exception as e:
+        print(f"❌ Ошибка при парсинге JSON: {e}")
+        print("📦 Ответ:", response.text)
+        raise
+
+
+@when('я отправляю POST запрос на "/agent-api/v2/lead-management/update" с id и фото')
+def step_impl(context):
+    lead_id = field_value_map.get("id") or field_value_map.get("leadId")
+    assert lead_id, "❌ leadId не найден в field_value_map"
+
+    def file_to_base64(path):
+        with open(path, "rb") as f:
+            return base64.b64encode(f.read()).decode("utf-8")
+
+    payload = {
+        "id": lead_id,
+        "userId": None,
+        "lastName": None,
+        "lastNameLat": None,
+        "firstName": None,
+        "firstNameLat": None,
+        "middleName": None,
+        "nin": None,
+        "phoneNumber": None,
+        "salesRoomCode": None,
+        "iban": None,
+        "productCode": None,
+        "langCode": None,
+        "bankBranch": None,
+        "statusId": None,
+        "contacts": None,
+        "refinancingContracts": None,
+        "securityQuestion": None,
+        "securityQuestionID": None,
+        "codeDisbursementChannel": None,
+        "leadPensionersID": None,
+        "leadFilesDTOS": [
+            {
+                "type": "id_card_front",
+                "data": file_to_base64("features/resources/id_card_front.jpg"),
+                "fileId": None
+            },
+            {
+                "type": "id_card_back",
+                "data": file_to_base64("features/resources/id_card_back.jpg"),
+                "fileId": None
+            },
+            {
+                "type": "selfie",
+                "data": file_to_base64("features/resources/selfie.jpg"),
+                "fileId": None
+            }
+        ]
+    }
+
+    print("📤 Тело запроса к /agent-api/v2/lead-management/update:")
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+    response = context.api_client.post_with_auth(
+        "/agent-api/v2/lead-management/update",
+        payload
+    )
+    context.response = response
+
+    try:
+        response_json = response.json()
+        print("✅ Ответ:")
+        print(json.dumps(response_json, indent=2, ensure_ascii=False))
+        endpoint_response_map["/agent-api/v2/lead-management/update"] = response_json
+    except Exception as e:
+        print(f"❌ Ошибка при разборе ответа: {e}")
+        print("📦 Текст ответа:", response.text)
+        endpoint_response_map["/agent-api/v2/lead-management/update"] = None
         raise
