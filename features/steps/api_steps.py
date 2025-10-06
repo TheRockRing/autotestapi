@@ -302,6 +302,57 @@ def step_impl(context):
 #         raise
 
 
+# @when('я отправляю POST запрос на "/agent-api/v1/customer-offer/calculate" с сохранёнными leadId и offerId')
+# def step_impl(context):
+#     lead_id            = field_value_map.get("id") or field_value_map.get("leadId")
+#     offer_product_code = field_value_map.get("offerProductCode")
+#     loan_option        = field_value_map.get("loanOption")
+#
+#     # Для offer — берём то, что нашли ранее (id или uuid или code)
+#     offer_for_req = (field_value_map.get("offerId") or
+#                      field_value_map.get("offerUuid") or
+#                      field_value_map.get("offerCode"))
+#     assert lead_id, "❌ leadId не найден"
+#     assert offer_for_req, "❌ offerId/offerUuid/offerCode не найдены"
+#     assert offer_product_code, "❌ offerProductCode не найден"
+#     assert loan_option, "❌ loanOption не найден"
+#
+#
+#     payload = {
+#         "leadId": lead_id,
+#         "offerId": offer_for_req,              # сервер принимает строку/число
+#         "offerProductCode": offer_product_code,
+#         "loanOption": loan_option,
+#         "requiredLoanAmount": 1000000
+#     }
+#     print("📤 calculate payload:", json.dumps(payload, ensure_ascii=False))
+#
+#     response = context.api_client.post_with_auth("/agent-api/v1/customer-offer/calculate", payload)
+#     context.response = response
+#
+#     resp = response.json()
+#     endpoint_response_map["/agent-api/v1/customer-offer/calculate"] = resp
+#     print("✅ Ответ calculate:", json.dumps(resp, indent=2, ensure_ascii=False))
+#
+#     # Сохраняем code (для update)
+#     customer_offers = resp.get("customerOffers", [])
+#     assert customer_offers, f"❌ В ответе calculate нет customerOffers: {json.dumps(resp, indent=2, ensure_ascii=False)}"
+#
+#     first = customer_offers[0]
+#
+#     # customerOfferCode обязателен
+#     code = first.get("code")
+#     assert code, f"❌ В customerOffers нет поля 'code': {json.dumps(first, indent=2, ensure_ascii=False)}"
+#     field_value_map["customerOfferCode"] = code
+#     print(f"✅ customerOfferCode={code}")
+#
+#     # leadApplicationId тоже должен быть
+#     lead_application_id = first.get("leadApplicationId")
+#     assert lead_application_id, f"❌ В customerOffers нет поля 'leadApplicationId': {json.dumps(first, indent=2, ensure_ascii=False)}"
+#     field_value_map["leadApplicationId"] = lead_application_id
+#     print(f"✅ leadApplicationId={lead_application_id}")
+
+
 @when('я отправляю POST запрос на "/agent-api/v1/customer-offer/calculate" с сохранёнными leadId и offerId')
 def step_impl(context):
     lead_id            = field_value_map.get("id") or field_value_map.get("leadId")
@@ -309,18 +360,20 @@ def step_impl(context):
     loan_option        = field_value_map.get("loanOption")
 
     # Для offer — берём то, что нашли ранее (id или uuid или code)
-    offer_for_req = (field_value_map.get("offerId") or
-                     field_value_map.get("offerUuid") or
-                     field_value_map.get("offerCode"))
+    offer_for_req = (
+            field_value_map.get("offerId")
+            or field_value_map.get("offerUuid")
+            or field_value_map.get("offerCode")
+    )
+
     assert lead_id, "❌ leadId не найден"
     assert offer_for_req, "❌ offerId/offerUuid/offerCode не найдены"
     assert offer_product_code, "❌ offerProductCode не найден"
     assert loan_option, "❌ loanOption не найден"
 
-
     payload = {
         "leadId": lead_id,
-        "offerId": offer_for_req,              # сервер принимает строку/число
+        "offerId": offer_for_req,               # сервер принимает строку/число
         "offerProductCode": offer_product_code,
         "loanOption": loan_option,
         "requiredLoanAmount": 1000000
@@ -334,19 +387,31 @@ def step_impl(context):
     endpoint_response_map["/agent-api/v1/customer-offer/calculate"] = resp
     print("✅ Ответ calculate:", json.dumps(resp, indent=2, ensure_ascii=False))
 
-    # Сохраняем code (для update)
-    first = resp.get("customerOffers", [{}])[0]
-    code  = first.get("code")
-    if code:
-        field_value_map["customerOfferCode"] = code
-        print(f"✅ customerOfferCode={code}")
+    # --- выбор customerOfferCode ---
+    customer_offers = resp.get("customerOffers", [])
+    assert customer_offers, f"❌ В ответе calculate нет customerOffers: {json.dumps(resp, indent=2, ensure_ascii=False)}"
 
-    # leadApplicationId в calculate может не приходить — фолбэк на lead id
-    if not field_value_map.get("leadApplicationId"):
-        if lead_id:
-            field_value_map["leadApplicationId"] = lead_id
-            print(f"ℹ️ leadApplicationId не пришёл — используем id лида: {lead_id}")
+    # ⚡ вместо жёсткого [0] — выберем первый с productType=CEL (или нужным условием)
+    chosen = next(
+        (o for o in customer_offers if o.get("product", {}).get("productType") == "CEL"),
+        customer_offers[0]  # fallback: первый
+    )
 
+    code = chosen.get("code")
+    assert code, f"❌ У выбранного customerOffer нет поля 'code': {json.dumps(chosen, indent=2, ensure_ascii=False)}"
+
+    # сохраняем как int
+    field_value_map["customerOfferCode"] = str(code)
+    print(f"✅ customerOfferCode={field_value_map['customerOfferCode']} (тип={type(field_value_map['customerOfferCode'])})")
+
+    # --- leadApplicationId ---
+    lead_application_id = chosen.get("leadApplicationId")
+    if lead_application_id:
+        field_value_map["leadApplicationId"] = lead_application_id
+        print(f"✅ leadApplicationId={lead_application_id}")
+    elif lead_id:
+        field_value_map["leadApplicationId"] = lead_id
+        print(f"ℹ️ leadApplicationId не пришёл из calculate — используем leadId={lead_id}")
 
 
 @when('я отправляю POST запрос на "/agent-api/v1/files/send-img-to-auth" с 3 фото')
@@ -406,24 +471,26 @@ def step_impl(context):
         endpoint_response_map["/agent-api/v1/files/send-img-to-auth"] = None
         raise
 
-
 @when('я отправляю POST запрос на "/agent-api/v1/application-management/update" с leadApplicationId')
-def step_impl(context):
+def step_impl(context, ):
     lead_application_id = field_value_map.get("leadApplicationId") or field_value_map.get("id")
     assert lead_application_id, "❌ leadApplicationId не найден (и id лида тоже)"
 
-    # Разруливаем тип offer: если UUID — НЕ отправлять offerId, а отправить offerUuid
     raw_offer_id = field_value_map.get("offerId")
     raw_uuid     = field_value_map.get("offerUuid")
     offer_code   = field_value_map.get("offerCode")
-    calc_code    = field_value_map.get("customerOfferCode")  # code из calculate
+    calc_code    = field_value_map.get("customerOfferCode")  # 👉 вот этот код из calculate
+    sales_room_code = field_value_map.get("salesRoomCode")
+    customer_offer_code = field_value_map.get("customerOfferCode")
+    assert customer_offer_code, "❌ customerOfferCode не найден (его вернул calculate)"
+
 
     payload = {
         "leadApplicationId": lead_application_id,
         "creditAmount": 1000000,
         "downPayment": 0,
         "loanOption": "CASH_LOAN",
-        "offerProductCode": field_value_map.get("offerProductCode", "XSTNF--FFP"),
+        "offerProductCode": field_value_map.get("offerProductCode"),
         "offerProductType": "CEL",
         "actualAmount": None,
         "creditType": None,
@@ -434,23 +501,25 @@ def step_impl(context):
         "offerRelipCode": None,
         "paymentServiceCode": None,
         "saleRoomCode": None,
-        "saleRoomName": None
+        "saleRoomName": str(sales_room_code),
+        "offerId": str(customer_offer_code)
     }
 
-    # добавляем code из calculate (обязательно)
-    if calc_code:
-        payload["code"] = calc_code
+    # 🔑 кладём именно customerOfferCode
+    calc_code = field_value_map.get("customerOfferCode")
+    if calc_code is not None:
+        payload["customerOfferCode"] = str(calc_code)
 
-    # добавляем offerId/offerUuid корректно
+    # оффер
     if isinstance(raw_offer_id, int):
-        payload["offerId"] = raw_offer_id                # Long OK
+        payload["offerId"] = raw_offer_id
     elif isinstance(raw_offer_id, str) and raw_offer_id.isdigit():
-        payload["offerId"] = int(raw_offer_id)           # привести к Long
+        payload["offerId"] = int(raw_offer_id)
     elif raw_uuid:
-        payload["offerUuid"] = raw_uuid                  # UUID -> отдельное поле
-    elif offer_code and "code" not in payload:
-        # как крайний случай можно положить code от оффера (если сервер это поддерживает)
-        payload["code"] = offer_code
+        payload["offerUuid"] = raw_uuid
+    elif offer_code and "customerOfferCode" not in payload:
+        payload["customerOfferCode"] = str(offer_code)
+
 
     print("📤 update payload:", json.dumps(payload, indent=2, ensure_ascii=False))
 
@@ -466,6 +535,68 @@ def step_impl(context):
         print("📦 raw:", response.text)
         endpoint_response_map["/agent-api/v1/application-management/update"] = None
         raise
+
+
+
+# @when('я отправляю POST запрос на "/agent-api/v1/application-management/update" с leadApplicationId')
+# def step_impl(context):
+#     lead_application_id = field_value_map.get("leadApplicationId") or field_value_map.get("id")
+#     assert lead_application_id, "❌ leadApplicationId не найден (и id лида тоже)"
+#
+#     # Разруливаем тип offer: если UUID — НЕ отправлять offerId, а отправить offerUuid
+#     raw_offer_id = field_value_map.get("offerId")
+#     raw_uuid     = field_value_map.get("offerUuid")
+#     offer_code   = field_value_map.get("offerCode")
+#     calc_code    = field_value_map.get("customerOfferCode")  # code из calculate
+#
+#     payload = {
+#         "leadApplicationId": lead_application_id,
+#         "creditAmount": 1000000,
+#         "downPayment": 0,
+#         "loanOption": "CASH_LOAN",
+#         "offerProductCode": field_value_map.get("offerProductCode", "XSTNF--FFP"),
+#         "offerProductType": "XSTNF--FFP",
+#         "actualAmount": None,
+#         "creditType": None,
+#         "incomeAmount": None,
+#         "incomeAmountTypeCode": None,
+#         "instantCardType": None,
+#         "namePartner": None,
+#         "offerRelipCode": None,
+#         "paymentServiceCode": None,
+#         "saleRoomCode": None,
+#         "saleRoomName": None
+#     }
+#
+#     # добавляем code из calculate (обязательно)
+#     if calc_code:
+#         payload["code"] = calc_code
+#
+#     # добавляем offerId/offerUuid корректно
+#     if isinstance(raw_offer_id, int):
+#         payload["offerId"] = raw_offer_id                # Long OK
+#     elif isinstance(raw_offer_id, str) and raw_offer_id.isdigit():
+#         payload["offerId"] = int(raw_offer_id)           # привести к Long
+#     elif raw_uuid:
+#         payload["offerUuid"] = raw_uuid                  # UUID -> отдельное поле
+#     elif offer_code and "code" not in payload:
+#         # как крайний случай можно положить code от оффера (если сервер это поддерживает)
+#         payload["code"] = offer_code
+#
+#     print("📤 update payload:", json.dumps(payload, indent=2, ensure_ascii=False))
+#
+#     response = context.api_client.post_with_auth("/agent-api/v1/application-management/update", payload)
+#     context.response = response
+#
+#     try:
+#         resp = response.json()
+#         print("✅ Ответ update:", json.dumps(resp, indent=2, ensure_ascii=False))
+#         endpoint_response_map["/agent-api/v1/application-management/update"] = resp
+#     except Exception as e:
+#         print("❌ Ошибка парсинга update:", e)
+#         print("📦 raw:", response.text)
+#         endpoint_response_map["/agent-api/v1/application-management/update"] = None
+#         raise
 
 
 

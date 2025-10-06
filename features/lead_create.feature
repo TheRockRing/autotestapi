@@ -60,3 +60,4 @@ Then Ожидаю когда поле "leadDTO.stateFeature.id" и статус 
     When я отправляю POST запрос на "/agent-api/v1/files/send-img-to-auth" с 3 фото
     Then статус ответа 200
 
+    When я отправляю GET запрос на "/agent-api/v1/lead-management/get-details/{{{id}}}" с токеном
