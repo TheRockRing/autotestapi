@@ -266,92 +266,6 @@ def step_impl(context):
           {k: field_value_map.get(k) for k in ["offerId","offerUuid","offerCode","offerProductCode","loanOption"]})
 
 
-# @then('я извлекаю offerId с типом "[CEL][Cash Xsell][Real]" из ответа "/agent-api/v1/offer-store/offers/6092400"')
-# def step_impl(context):
-#     endpoint = "/agent-api/v1/offer-store/offers/6092400"
-#     data = endpoint_response_map.get(endpoint)
-#
-#     assert data, f"❌ Нет сохранённого ответа для {endpoint}"
-#
-#     # Пробуем извлечь список офферов
-#     try:
-#         offers = data.get("offerDTOList", [])
-#         assert offers, "❌ В ответе нет offerDTOList или он пуст"
-#
-#         # Ищем оффер с нужным типом, кодом и loanOption
-#         found = None
-#         for offer in offers:
-#             if (offer.get("offerTypeName") == "[CEL][Cash Xsell][Real]" and
-#                     offer.get("offerProductCode") == "CEL" and
-#                     offer.get("loanOption") == "CASH_LOAN"):
-#                 found = offer
-#                 break
-#
-#         assert found, "❌ Оффер с типом '[CEL][Cash Xsell][Real]', productCode 'CEL' и loanOption 'CASH_LOAN' не найден"
-#
-#         # Сохраняем offerId и другие данные
-#         field_value_map["offerId"] = found["offerId"]
-#         field_value_map["offerProductCode"] = found["offerProductCode"]
-#         field_value_map["loanOption"] = found["loanOption"]
-#
-#         print(f"✅ Найден оффер: offerId={found['offerId']}, offerProductCode={found['offerProductCode']}, loanOption={found['loanOption']}")
-#
-#     except Exception as e:
-#         print(f"❌ Ошибка при разборе ответа: {e}")
-#         print("📦 Ответ:", data)
-#         raise
-
-
-# @when('я отправляю POST запрос на "/agent-api/v1/customer-offer/calculate" с сохранёнными leadId и offerId')
-# def step_impl(context):
-#     lead_id            = field_value_map.get("id") or field_value_map.get("leadId")
-#     offer_product_code = field_value_map.get("offerProductCode")
-#     loan_option        = field_value_map.get("loanOption")
-#
-#     # Для offer — берём то, что нашли ранее (id или uuid или code)
-#     offer_for_req = (field_value_map.get("offerId") or
-#                      field_value_map.get("offerUuid") or
-#                      field_value_map.get("offerCode"))
-#     assert lead_id, "❌ leadId не найден"
-#     assert offer_for_req, "❌ offerId/offerUuid/offerCode не найдены"
-#     assert offer_product_code, "❌ offerProductCode не найден"
-#     assert loan_option, "❌ loanOption не найден"
-#
-#
-#     payload = {
-#         "leadId": lead_id,
-#         "offerId": offer_for_req,              # сервер принимает строку/число
-#         "offerProductCode": offer_product_code,
-#         "loanOption": loan_option,
-#         "requiredLoanAmount": 1000000
-#     }
-#     print("📤 calculate payload:", json.dumps(payload, ensure_ascii=False))
-#
-#     response = context.api_client.post_with_auth("/agent-api/v1/customer-offer/calculate", payload)
-#     context.response = response
-#
-#     resp = response.json()
-#     endpoint_response_map["/agent-api/v1/customer-offer/calculate"] = resp
-#     print("✅ Ответ calculate:", json.dumps(resp, indent=2, ensure_ascii=False))
-#
-#     # Сохраняем code (для update)
-#     customer_offers = resp.get("customerOffers", [])
-#     assert customer_offers, f"❌ В ответе calculate нет customerOffers: {json.dumps(resp, indent=2, ensure_ascii=False)}"
-#
-#     first = customer_offers[0]
-#
-#     # customerOfferCode обязателен
-#     code = first.get("code")
-#     assert code, f"❌ В customerOffers нет поля 'code': {json.dumps(first, indent=2, ensure_ascii=False)}"
-#     field_value_map["customerOfferCode"] = code
-#     print(f"✅ customerOfferCode={code}")
-#
-#     # leadApplicationId тоже должен быть
-#     lead_application_id = first.get("leadApplicationId")
-#     assert lead_application_id, f"❌ В customerOffers нет поля 'leadApplicationId': {json.dumps(first, indent=2, ensure_ascii=False)}"
-#     field_value_map["leadApplicationId"] = lead_application_id
-#     print(f"✅ leadApplicationId={lead_application_id}")
-
 
 @when('я отправляю POST запрос на "/agent-api/v1/customer-offer/calculate" с сохранёнными leadId и offerId')
 def step_impl(context):
@@ -537,68 +451,90 @@ def step_impl(context, ):
         raise
 
 
+@when('я отправляю POST запрос на "/agent-api/v2/lead-management/update" с id')
+def step_impl(context):
+    lead_id = field_value_map.get("id") or field_value_map.get("leadId")
+    assert lead_id, "❌ leadId не найден в field_value_map"
 
-# @when('я отправляю POST запрос на "/agent-api/v1/application-management/update" с leadApplicationId')
-# def step_impl(context):
-#     lead_application_id = field_value_map.get("leadApplicationId") or field_value_map.get("id")
-#     assert lead_application_id, "❌ leadApplicationId не найден (и id лида тоже)"
-#
-#     # Разруливаем тип offer: если UUID — НЕ отправлять offerId, а отправить offerUuid
-#     raw_offer_id = field_value_map.get("offerId")
-#     raw_uuid     = field_value_map.get("offerUuid")
-#     offer_code   = field_value_map.get("offerCode")
-#     calc_code    = field_value_map.get("customerOfferCode")  # code из calculate
-#
-#     payload = {
-#         "leadApplicationId": lead_application_id,
-#         "creditAmount": 1000000,
-#         "downPayment": 0,
-#         "loanOption": "CASH_LOAN",
-#         "offerProductCode": field_value_map.get("offerProductCode", "XSTNF--FFP"),
-#         "offerProductType": "XSTNF--FFP",
-#         "actualAmount": None,
-#         "creditType": None,
-#         "incomeAmount": None,
-#         "incomeAmountTypeCode": None,
-#         "instantCardType": None,
-#         "namePartner": None,
-#         "offerRelipCode": None,
-#         "paymentServiceCode": None,
-#         "saleRoomCode": None,
-#         "saleRoomName": None
-#     }
-#
-#     # добавляем code из calculate (обязательно)
-#     if calc_code:
-#         payload["code"] = calc_code
-#
-#     # добавляем offerId/offerUuid корректно
-#     if isinstance(raw_offer_id, int):
-#         payload["offerId"] = raw_offer_id                # Long OK
-#     elif isinstance(raw_offer_id, str) and raw_offer_id.isdigit():
-#         payload["offerId"] = int(raw_offer_id)           # привести к Long
-#     elif raw_uuid:
-#         payload["offerUuid"] = raw_uuid                  # UUID -> отдельное поле
-#     elif offer_code and "code" not in payload:
-#         # как крайний случай можно положить code от оффера (если сервер это поддерживает)
-#         payload["code"] = offer_code
-#
-#     print("📤 update payload:", json.dumps(payload, indent=2, ensure_ascii=False))
-#
-#     response = context.api_client.post_with_auth("/agent-api/v1/application-management/update", payload)
-#     context.response = response
-#
-#     try:
-#         resp = response.json()
-#         print("✅ Ответ update:", json.dumps(resp, indent=2, ensure_ascii=False))
-#         endpoint_response_map["/agent-api/v1/application-management/update"] = resp
-#     except Exception as e:
-#         print("❌ Ошибка парсинга update:", e)
-#         print("📦 raw:", response.text)
-#         endpoint_response_map["/agent-api/v1/application-management/update"] = None
-#         raise
+    def file_to_base64(path):
+        with open(path, "rb") as f:
+            return base64.b64encode(f.read()).decode("utf-8")
 
+    # 🟢 Базовый payload
+    payload = {
+        "id": lead_id,
+        "userId": None,
+        "lastName": None,
+        "lastNameLat": None,
+        "firstName": None,
+        "firstNameLat": None,
+        "middleName": None,
+        "nin": None,
+        "phoneNumber": None,
+        "salesRoomCode": None,
+        "iban": None,
+        "productCode": None,
+        "langCode": None,
+        "bankBranch": None,
+        "statusId": None,
+        "contacts": [
+            {
+                "id": None,
+                "phoneNumber": "7776532332",
+                "lastName": "Вывффвфыв",
+                "firstName": "Ввыфвыф",
+                "middleName": None,
+                "type": "Brat-Sestra",
+                "dictId": None,
+                "leadId": None
+            }
+        ],
+        "refinancingContracts": None,
+        "securityQuestion": 3211,
+        "securityQuestionID": 144,
+        "codeDisbursementChannel": None,
+        "leadPensionersID": None
+    }
 
+    # 🟡 Если шаг вызван без текста → вставляем фото по умолчанию
+    if not context.text:
+        payload["leadFilesDTOS"] = [
+            {
+                "type": "id_card_front",
+                "data": file_to_base64("features/resources/id_card_front.jpg"),
+                "fileId": None
+            },
+            {
+                "type": "id_card_back",
+                "data": file_to_base64("features/resources/id_card_back.jpg"),
+                "fileId": None
+            },
+            {
+                "type": "selfie",
+                "data": file_to_base64("features/resources/selfie.jpg"),
+                "fileId": None
+            }
+        ]
+    else:
+        # 🔵 Если в feature есть JSON — берём оттуда
+        extra = json.loads(context.text)
+        payload.update(extra)
+
+    print("📤 Тело запроса к /agent-api/v2/lead-management/update:")
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+    response = context.api_client.post_with_auth("/agent-api/v2/lead-management/update", payload)
+    context.response = response
+
+    try:
+        resp = response.json()
+        print("✅ Ответ update:", json.dumps(resp, indent=2, ensure_ascii=False))
+        endpoint_response_map["/agent-api/v2/lead-management/update"] = resp
+    except Exception as e:
+        print(f"❌ Ошибка при разборе ответа: {e}")
+        print("📦 Текст ответа:", response.text)
+        endpoint_response_map["/agent-api/v2/lead-management/update"] = None
+        raise
 
 @when('я отправляю POST запрос на "/agent-api/v2/lead-management/update" с id и фото')
 def step_impl(context):
@@ -608,6 +544,19 @@ def step_impl(context):
     def file_to_base64(path):
         with open(path, "rb") as f:
             return base64.b64encode(f.read()).decode("utf-8")
+
+    contacts_payload = [
+        {
+            "id": None,
+            "phoneNumber": "7776532332",
+            "lastName": "Вывффвфыв",
+            "firstName": "Ввыфвыф",
+            "middleName": None,
+            "type": "Brat-Sestra",
+            "dictId": None,
+            "leadId": None
+        }
+    ]
 
     payload = {
         "id": lead_id,
@@ -625,10 +574,10 @@ def step_impl(context):
         "langCode": None,
         "bankBranch": None,
         "statusId": None,
-        "contacts": None,
+        "contacts": contacts_payload,
         "refinancingContracts": None,
-        "securityQuestion": None,
-        "securityQuestionID": None,
+        "securityQuestion": 3211,
+        "securityQuestionID": 144,
         "codeDisbursementChannel": None,
         "leadPensionersID": None,
         "leadFilesDTOS": [
@@ -671,9 +620,125 @@ def step_impl(context):
         raise
 
 
-@when('я отправляю POST запрос на "/agent-api/v1/files/send-img-to-auth" с base64 фото')
+
+@when('Ожидаю когда поле "leadDTO.stateFeature.id" и статус "135"')
+def step_impl(context):
+    lead_id = field_value_map.get("id")
+
+    endpoint = f"/agent-api/v1/lead-management/get-details/{lead_id}"
+    max_attempts = 20
+    interval = 5
+
+    for attempt in range(1, max_attempts + 1):
+        response = context.api_client.get_with_auth(endpoint)
+        try:
+            json_body = response.json()
+            state_feature_id = json_body["leadDTO"]["stateFeature"]["id"]
+
+            if str(state_feature_id) == "135":
+                print(f"✅ Попытка {attempt}: stateFeature.id = 135")
+                return
+            else:
+                print(f"⏳ Попытка {attempt}: stateFeature.id = {state_feature_id}, ожидаем 135")
+
+        except Exception as e:
+            print(f"⚠️ Ошибка при обработке ответа: {e}")
+            print("📦 Ответ:", response.text)
+
+        if attempt < max_attempts:
+            time.sleep(interval)
+
+
+@when('Ожидаю когда поле "leadDTO.stateFeature.id" и статус "61"')
+def step_impl(context):
+    lead_id = field_value_map.get("id")
+
+    endpoint = f"/agent-api/v1/lead-management/get-details/{lead_id}"
+    max_attempts = 20
+    interval = 10
+
+    for attempt in range(1, max_attempts + 1):
+        response = context.api_client.get_with_auth(endpoint)
+        try:
+            json_body = response.json()
+            state_feature_id = json_body["leadDTO"]["stateFeature"]["id"]
+
+            if str(state_feature_id) == "61":
+                print(f"✅ Попытка {attempt}: stateFeature.id = 61")
+                return
+            else:
+                print(f"⏳ Попытка {attempt}: stateFeature.id = {state_feature_id}, ожидаем 61")
+
+        except Exception as e:
+            print(f"⚠️ Ошибка при обработке ответа: {e}")
+            print("📦 Ответ:", response.text)
+
+        if attempt < max_attempts:
+            time.sleep(interval)
+
+
+@when('я отправляю POST запрос на "/agent-api/v1/card-controller/disbursement-channel" с leadId и iban')
 def step_impl(context):
     lead_id = field_value_map.get("id") or field_value_map.get("leadId")
+    assert lead_id, "❌ leadId не найден в field_value_map"
+
+    payload = {
+        "leadId": lead_id,
+        "iban": "KZ24886D224500007212",   # можно брать из field_value_map
+        "codeDisbursementChannel": "DEBIT_CARD",
+        "bankBranch": None
+    }
+
+    print("📤 disbursement payload:", json.dumps(payload, indent=2, ensure_ascii=False))
+
+    response = context.api_client.post_with_auth(
+        "/agent-api/v1/card-controller/disbursement-channel",
+        payload
+    )
+    context.response = response
+
+    try:
+        resp = response.json()
+        print("✅ Ответ disbursement:", json.dumps(resp, indent=2, ensure_ascii=False))
+        endpoint_response_map["/agent-api/v1/card-controller/disbursement-channel"] = resp
+    except Exception as e:
+        print(f"❌ Ошибка парсинга disbursement: {e}")
+        print("📦 raw:", response.text)
+        endpoint_response_map["/agent-api/v1/card-controller/disbursement-channel"] = None
+        raise
+
+
+@when('Ожидаю когда поле "leadDTO.stateFeature.id" и статус "243"')
+def step_impl(context):
+    lead_id = field_value_map.get("id")
+
+    endpoint = f"/agent-api/v1/lead-management/get-details/{lead_id}"
+    max_attempts = 20
+    interval = 10
+
+    for attempt in range(1, max_attempts + 1):
+        response = context.api_client.get_with_auth(endpoint)
+        try:
+            json_body = response.json()
+            state_feature_id = json_body["leadDTO"]["stateFeature"]["id"]
+
+            if str(state_feature_id) == "243":
+                print(f"✅ Попытка {attempt}: stateFeature.id = 243")
+                return
+            else:
+                print(f"⏳ Попытка {attempt}: stateFeature.id = {state_feature_id}, ожидаем 243")
+
+        except Exception as e:
+            print(f"⚠️ Ошибка при обработке ответа: {e}")
+            print("📦 Ответ:", response.text)
+
+        if attempt < max_attempts:
+            time.sleep(interval)
+
+
+@when('я отправляю POST запрос на "/agent-api/v1/eds/create-sign/SIGN_CONTRACT" с фото')
+def step_impl(context):
+    lead_id = field_value_map.get("id") or field_value_map.get("leadApplicationId")
     assert lead_id, "❌ leadId не найден в field_value_map"
 
     def file_to_base64(path):
@@ -681,49 +746,53 @@ def step_impl(context):
             return base64.b64encode(f.read()).decode("utf-8")
 
     payload = {
-        "leadId": lead_id,
-        "lang": "RUS",
-        "leadFilesDTOS": [
-            {
-                "type": "id_card_front",
-                "data": file_to_base64("features/resources/id_card_front.jpg"),
-                "fileId": None
-            },
-            {
-                "type": "id_card_back",
-                "data": file_to_base64("features/resources/id_card_back.jpg"),
-                "fileId": None
-            },
-            {
-                "type": "selfie",
-                "data": file_to_base64("features/resources/selfie.jpg"),
-                "fileId": None
-            }
-        ]
+        "fileId": None,
+        "type": "selfie",
+        "data": file_to_base64("features/resources/selfie.jpg")
     }
 
-    print("📤 Тело запроса (send-img-to-auth):")
+    endpoint = f"/agent-api/v1/eds/create-sign/{lead_id}/SIGN_CONTRACT"
+    print("📤 Тело запроса к create-sign:")
     print(json.dumps(payload, indent=2, ensure_ascii=False))
 
-    url = "https://dev-agent.homecredit.kz/agent-api/v1/files/send-img-to-auth"
-    with open("token.txt") as f:
-        token = f.read().strip()
-
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
-
-    response = requests.post(url, json=payload, headers=headers, verify=False)
+    response = context.api_client.post_with_auth(endpoint, payload)
     context.response = response
 
     try:
-        response_json = response.json()
-        print("✅ Ответ send-img-to-auth:")
-        print(json.dumps(response_json, indent=2, ensure_ascii=False))
-        endpoint_response_map["/agent-api/v1/files/send-img-to-auth"] = response_json
+        resp_json = response.json()
+        print("✅ Ответ create-sign:", json.dumps(resp_json, indent=2, ensure_ascii=False))
+        endpoint_response_map[endpoint] = resp_json
     except Exception as e:
-        print(f"❌ Ошибка при парсинге ответа: {e}")
-        print("📦 Текст ответа:", response.text)
-        endpoint_response_map["/agent-api/v1/files/send-img-to-auth"] = None
+        print(f"❌ Ошибка при разборе ответа: {e}")
+        print("📦 raw:", response.text)
+        endpoint_response_map[endpoint] = None
         raise
+
+
+@when('Ожидаю когда поле "leadDTO.stateFeature.id" и статус "63"')
+def step_impl(context):
+    lead_id = field_value_map.get("id")
+
+    endpoint = f"/agent-api/v1/lead-management/get-details/{lead_id}"
+    max_attempts = 20
+    interval = 10
+
+    for attempt in range(1, max_attempts + 1):
+        response = context.api_client.get_with_auth(endpoint)
+        try:
+            json_body = response.json()
+            state_feature_id = json_body["leadDTO"]["stateFeature"]["id"]
+
+            if str(state_feature_id) == "63":
+                print(f"✅ Попытка {attempt}: stateFeature.id = 63")
+                return
+            else:
+                print(f"⏳ Попытка {attempt}: stateFeature.id = {state_feature_id}, ожидаем 63")
+
+        except Exception as e:
+            print(f"⚠️ Ошибка при обработке ответа: {e}")
+            print("📦 Ответ:", response.text)
+
+        if attempt < max_attempts:
+            time.sleep(interval)
+

@@ -17,4 +17,10 @@ Feature: Отправка на 1 блок данных
 
 
      When я отправляю POST запрос на "/agent-api/v2/lead-management/update" с id и фото
+     """
+      {
+        "leadFilesDTOS": []
+      }
+      """
+
     Then статус ответа 200

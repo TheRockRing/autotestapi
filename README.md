@@ -7,8 +7,8 @@
 ## 📋 Сценарии тестирования
 
 - ✅ [Генерация токена для доступа к сервисам](features/token.feature)
-- ✅ [Создание лида и вызов PST](features/lead_create.feature)
-- ✅ [Получение оффера и отправка на первый блок](features/offer_create.feature)
+- ✅ [Создание лида и вызов PST](features/PST/Xsell[Real]/lead_create.feature)
+- ✅ [Получение оффера и отправка на первый блок](features/PST/Xsell[Real]/offer_create.feature)
 - ✅ [Получение данных агента по ИИН](features/get_user.feature)
 
 ---
