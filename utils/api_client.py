@@ -52,8 +52,3 @@ class ApiClient:
         url = f"{self.base_url}{endpoint}"
         response = requests.post(url, json=payload)
         return response
-
-    def get(self, endpoint):
-        url = f"{self.base_url}{endpoint}"
-        response = requests.get(url)
-        return response
