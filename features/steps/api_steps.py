@@ -1,3 +1,4 @@
+
 import base64
 import urllib3
 import requests
@@ -39,6 +40,7 @@ def step_impl(context, endpoint, key):
     # 👉 если это id из create лида, сразу сохраняем и как leadApplicationId
     if key == "id" and "/agent-api/v2/lead-management/create" in endpoint:
         field_value_map["leadApplicationId"] = result
+        context.lead_id = result
         print(f"✅ leadApplicationId тоже сохранён: {result}")
 
 
@@ -71,32 +73,76 @@ def step_impl(context, field, value):
 
 
 
-@then('Ожидаю когда поле "leadDTO.stateFeature.id" и статус "165"')
+def _normalize_status(value):
+    if value is None:
+        return ""
+    raw = str(value).strip()
+    try:
+        return str(int(float(raw)))
+    except (ValueError, TypeError):
+        return raw
+
+
+def _extract_state_feature_id(json_body):
+    lead_dto = json_body.get("leadDTO") if isinstance(json_body, dict) else None
+    if not isinstance(lead_dto, dict):
+        lead_dto = json_body if isinstance(json_body, dict) else {}
+
+    sf = lead_dto.get("stateFeature")
+    if isinstance(sf, dict):
+        status = sf.get("id")
+    elif isinstance(sf, list) and sf:
+        item = sf[-1]
+        status = item.get("id") if isinstance(item, dict) else item
+    else:
+        status = sf
+
+    if status is None:
+        status = lead_dto.get("stateFeatureId")
+    if status is None and isinstance(lead_dto.get("state"), dict):
+        status = lead_dto["state"].get("id")
+    return status
+
+
+@then('Ожидаю когда поле "leadDTO.stateFeature.id" и статус "165" или "5"')
 def step_impl(context):
-    lead_id = field_value_map.get("id")
+    from utils.teams_notifier import notify_lead_failure, notify_lead_success
+
+    lead_id = field_value_map.get("id") or getattr(context, "lead_id", None)
 
     endpoint = f"/agent-api/v1/lead-management/get-details/{lead_id}"
-    max_attempts = 20
+    max_attempts = 40
     interval = 5
+    last_status = None
+    found_status = None
+    ok_statuses = {"165", "5"}
 
     for attempt in range(1, max_attempts + 1):
         response = context.api_client.get_with_auth(endpoint)
         try:
             json_body = response.json()
-            state_feature_id = json_body["leadDTO"]["stateFeature"]["id"]
+            state_feature_id = _extract_state_feature_id(json_body)
+            last_status = state_feature_id
+            status_str = _normalize_status(state_feature_id)
 
-            if str(state_feature_id) == "165":
-                print(f"✅ Попытка {attempt}: stateFeature.id = 165")
-                return
-            else:
-                print(f"⏳ Попытка {attempt}: stateFeature.id = {state_feature_id}, ожидаем 165")
-
+            if status_str in ok_statuses:
+                print(f"✅ Попытка {attempt}: stateFeature.id = {state_feature_id}")
+                found_status = status_str
+                break
+            print(f"⏳ Попытка {attempt}: stateFeature.id = {state_feature_id}, ожидаем 165 или 5")
         except Exception as e:
             print(f"⚠️ Ошибка при обработке ответа: {e}")
-            print("📦 Ответ:", response.text)
+            print("📦 Ответ:", getattr(response, "text", response))
 
         if attempt < max_attempts:
             time.sleep(interval)
+
+
+
+    reason = f"Статус 165 или 5 не получен (последний: {last_status})"
+    notify_lead_failure(lead_id=lead_id, reason=reason)
+    context.teams_notified = True
+    assert False, f"❌ {reason}, leadId={lead_id}"
 
 
 
@@ -105,13 +151,13 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 @when('отправляю запрос на получение токена')
 def step_impl(context):
-    b64_auth = 'Q0xJRU5UX1dFQjowMTgzMGU0NC1kZGE1LTRiNmMtYjE0Mi04NjNmNTc3ZGIzODU='
+    b64_auth = ''
     context.headers = {
         "Content-Type": "application/x-www-form-urlencoded",
         "Authorization": f"Basic {b64_auth}"
     }
     context.response = context.api_client.post_header(
-        "/agent-auth/oauth/token?grant_type=password&password=QWEasd@123&username=861029401955&version=1.0.100%2B109",
+        "/agent-auth/oauth/token?grant_type=",
         context.headers
     )
     token = context.response.json().get("access_token")
@@ -132,7 +178,7 @@ def step_impl(context, field, value):
 
 @when('я отправляю GET запрос "{endpoint}"')
 def step_impl(context, endpoint):
-    url = f"https://dev-agent.homecredit.kz/{endpoint}"
+    url = f"/{endpoint}"
 
     response = requests.get(url, verify=False)
     context.response = response
@@ -160,14 +206,19 @@ def step_impl_(context, endpoint):
         response_json = context.response.json()
         endpoint_response_map[endpoint] = response_json
         print(f"✅ JSON из {endpoint}:\n{json.dumps(response_json, indent=2, ensure_ascii=False)}")
-        print(response_json)
-
     except Exception as e:
         print(f"❌ Не удалось распарсить JSON с {endpoint}: {e}")
         print("📦 Ответ:", context.response.text)
         endpoint_response_map[endpoint] = None
 
-    print(response_json)
+
+@then('беру OTP код из БД по телефону "{phone}"')
+def step_impl(context, phone):
+    from utils.db_client import DbClient
+
+    otp_code = DbClient().get_otp_by_phone(phone)
+    field_value_map["otp_code"] = otp_code
+    print(f"✅ otp_code сохранён: {otp_code}")
 
 
 @when('я отправляю POST запрос на "{endpoint}" и токеном')
@@ -175,13 +226,11 @@ def step_impl_(context, endpoint):
     # Очищаем текст от \r и \n, но сохраняем структуру JSON
     clean_text = context.text.replace('\r', '').replace('\n', '')
 
-    # Обработка шаблона {{{key}}}
-    match = re.search(r"\{\{\{(.*?)\}\}\}", clean_text)
-    if match:
-        field_name = match.group(1)
+    # Обработка всех шаблонов {{{field}}}
+    for field_name in re.findall(r"\{\{\{(.*?)\}\}\}", clean_text):
         value = field_value_map.get(field_name, '')
         assert value != '', f"Значение поля {field_name} пустое"
-        clean_text = clean_text.replace(f"{{{{{{{field_name}}}}}}}", value)
+        clean_text = clean_text.replace(f"{{{{{{{field_name}}}}}}}", str(value))
 
     # Преобразуем в JSON
     payload = json.loads(clean_text)
@@ -195,7 +244,7 @@ def step_impl(context):
     with open("token.txt") as f:
         token = f.read().strip()
 
-    url = "https://dev-agent.homecredit.kz/agent-api/v2/lead-management/create"
+    url = "management/create"
 
     headers = {
         "Authorization": f"Bearer {token}",
@@ -221,32 +270,32 @@ def step_impl(context, offer_type):
         return isinstance(v, str) and bool(re.match(r'^[0-9a-fA-F-]{36}$', v))
 
     lead_id = field_value_map.get("id")
-    assert lead_id, "❌ leadId не найден в field_value_map"
+    assert lead_id, " leadId не найден в field_value_map"
 
     endpoint = f"/agent-api/v1/offer-store/offers/{lead_id}"
     data = endpoint_response_map.get(endpoint)
-    assert data, f"❌ Нет сохранённого ответа для {endpoint}"
+    assert data, f" Нет сохранённого ответа для {endpoint}"
 
     offers = data.get("offerDTOList", [])
-    assert offers, "❌ В ответе нет offerDTOList"
+    assert offers, " В ответе нет offerDTOList"
 
     # ищем оффер по имени (то, что передал ты в feature)
     found = next((o for o in offers if o.get("offerTypeName") == offer_type), None)
-    assert found, f"❌ Оффер '{offer_type}' не найден"
+    assert found, f" Оффер '{offer_type}' не найден"
 
     raw = found.get("offerId") or found.get("offerUuid") or found.get("code")
-    assert raw, "❌ Ни offerId, ни offerUuid, ни code не найдены в оффере"
+    assert raw, " Ни offerId, ни offerUuid, ни code не найдены в оффере"
 
     # Сохраняем offerId/Uuid/Code в field_value_map
     if isinstance(raw, int) or (isinstance(raw, str) and raw.isdigit()):
         field_value_map["offerId"] = int(raw)
-        print(f"✅ offerId (Long) = {field_value_map['offerId']}")
+        print(f" offerId (Long) = {field_value_map['offerId']}")
     elif is_uuid_like(raw):
         field_value_map["offerUuid"] = raw
-        print(f"✅ offerUuid (UUID) = {field_value_map['offerUuid']}")
+        print(f" offerUuid (UUID) = {field_value_map['offerUuid']}")
     else:
         field_value_map["offerCode"] = raw
-        print(f"✅ offerCode = {field_value_map['offerCode']}")
+        print(f" offerCode = {field_value_map['offerCode']}")
 
     # Дополнительно сохраняем полезные поля
     field_value_map["offerProductCode"] = found.get("offerProductCode")
@@ -268,10 +317,10 @@ def step_impl(context):
             or field_value_map.get("offerCode")
     )
 
-    assert lead_id, "❌ leadId не найден"
-    assert offer_for_req, "❌ offerId/offerUuid/offerCode не найдены"
-    assert offer_product_code, "❌ offerProductCode не найден"
-    assert loan_option, "❌ loanOption не найден"
+    assert lead_id, " leadId не найден"
+    assert offer_for_req, " offerId/offerUuid/offerCode не найдены"
+    assert offer_product_code, " offerProductCode не найден"
+    assert loan_option, " loanOption не найден"
 
     # --- payload ---
     payload = {
@@ -304,14 +353,14 @@ def step_impl(context):
     assert code, f"❌ У выбранного customerOffer нет поля 'code': {json.dumps(chosen, indent=2, ensure_ascii=False)}"
 
     field_value_map["customerOfferCode"] = str(code)
-    print(f"✅ customerOfferCode={field_value_map['customerOfferCode']}")
+    print(f" customerOfferCode={field_value_map['customerOfferCode']}")
 
     # leadApplicationId
     lead_application_id = chosen.get("leadApplicationId") or lead_id
     field_value_map["leadApplicationId"] = lead_application_id
-    print(f"✅ leadApplicationId={lead_application_id}")
+    print(f" leadApplicationId={lead_application_id}")
 
-    # --- 🧩 Если продукт — рефинанс ---
+    # ---  Если продукт — рефинанс ---
     product_type = (chosen.get("product", {}).get("productType") or "").upper()
     if "REFIN" in product_type:
         print("🔁 Обнаружен продукт типа REFINANCE. Ищем контракт в offer-store...")
@@ -320,14 +369,14 @@ def step_impl(context):
         field_value_map["offerProductType"] = product_type
         field_value_map["loanOption"] = "REFINANCE"
 
-        # 🧩 ищем последнее сохранённое обращение к offer-store
+        #  ищем последнее сохранённое обращение к offer-store
         offer_keys = [k for k in endpoint_response_map.keys() if k.startswith("/agent-api/v1/offer-store/offers")]
-        assert offer_keys, "❌ Нет ответа offer-store — нужно выполнить GET перед этим шагом"
+        assert offer_keys, " Нет ответа offer-store — нужно выполнить GET перед этим шагом"
         offer_keys.sort()
         offer_store_resp = endpoint_response_map[offer_keys[-1]]
 
         refinance_contracts = offer_store_resp.get("refinanceContracts", [])
-        assert refinance_contracts, "❌ В ответе offer-store нет refinanceContracts"
+        assert refinance_contracts, " В ответе offer-store нет refinanceContracts"
 
         valid_contracts = []
         for c in refinance_contracts:
@@ -350,7 +399,7 @@ def step_impl(context):
                     "branchCode": c.get("branchCode"),
                 })
 
-        assert valid_contracts, "❌ Не найден контракт с amount < 4_900_000 в ответе offer-store"
+        assert valid_contracts, " Не найден контракт с amount < 4_900_000 в ответе offer-store"
 
         chosen_contract = min(valid_contracts, key=lambda x: x["amount"])
         app_code = chosen_contract["applicationCode"]
@@ -382,7 +431,7 @@ def step_impl(context):
 @when('я отправляю POST запрос на "/agent-api/v1/files/send-img-to-auth" с 3 фото')
 def step_impl(context):
     lead_id = field_value_map.get("id") or field_value_map.get("leadId")
-    assert lead_id, "❌ leadId не найден в field_value_map"
+    assert lead_id, " leadId не найден в field_value_map"
 
     def file_to_base64(filepath):
         with open(filepath, "rb") as file:
@@ -427,7 +476,7 @@ def step_impl(context):
 
     try:
         response_json = response.json()
-        print("✅ Ответ:")
+        print(" Ответ:")
         print(json.dumps(response_json, indent=2, ensure_ascii=False))
         endpoint_response_map["/agent-api/v1/files/send-img-to-auth"] = response_json
     except Exception as e:
@@ -496,6 +545,8 @@ def step_impl(context):
     # --- Если рефинанс, достаём контракт из offer-store ---
     if is_refinance:
         print("🔁 Тип продукта: REFINANCE — ищем контракт в ответе offer-store")
+        payload["loanOption"] = field_value_map.get("loanOption", "REFINANCE")
+        payload["offerProductType"] = field_value_map.get("offerProductType", "REFIN_CREDIT")
 
         offer_keys = [k for k in endpoint_response_map.keys() if k.startswith("/agent-api/v1/offer-store/offers")]
         assert offer_keys, "❌ Нет ответа offer-store — нужно выполнить GET перед этим шагом"
@@ -531,9 +582,8 @@ def step_impl(context):
         assert valid_contracts, "❌ Не найден контракт с amount < 4_900_000 в ответе offer-store"
 
         chosen = min(valid_contracts, key=lambda x: x["contractAmount"])
-        payload["refinancingContracts"] = [chosen]
+        payload["refinancingContracts"] = field_value_map.get("refinancingContracts") or [chosen]
 
-        # 💾 сохраняем в field_value_map
         field_value_map["isRefinance"] = True
         field_value_map["contractNumber"] = chosen["contractNumber"]
         field_value_map["contractAmount"] = chosen["contractAmount"]
@@ -544,8 +594,6 @@ def step_impl(context):
         print(json.dumps(payload["refinancingContracts"], indent=2, ensure_ascii=False))
     else:
         print(f"💰 Тип продукта: {product_type or 'CASH_LOAN'} — без блока refinancingContracts")
-        print(f"here smthg {payload}, {loan_option}")
-
 
     response = context.api_client.post_with_auth("/agent-api/v1/application-management/update", payload)
     context.response = response
@@ -617,6 +665,7 @@ def step_impl(context):
     # 🟣 Если рефинанс — добавляем refinancingContracts
     if field_value_map.get("isRefinance"):
         payload["refinancingContracts"] = field_value_map.get("refinancingContracts")
+        payload["loanOption"] = field_value_map.get("loanOption", "REFINANCE")
         print("🔁 Добавлен блок refinancingContracts из field_value_map")
 
     # 🚀 Отправляем запрос
@@ -705,6 +754,11 @@ def step_impl(context):
         ]
     }
 
+    if field_value_map.get("isRefinance"):
+        payload["refinancingContracts"] = field_value_map.get("refinancingContracts")
+        payload["loanOption"] = field_value_map.get("loanOption", "REFINANCE")
+        print("🔁 Добавлен блок refinancingContracts из field_value_map")
+
     print("📤 Тело запроса к /agent-api/v2/lead-management/update:")
     print(json.dumps(payload, indent=2, ensure_ascii=False))
 
@@ -724,70 +778,6 @@ def step_impl(context):
         print("📦 Текст ответа:", response.text)
         endpoint_response_map["/agent-api/v2/lead-management/update"] = None
         raise
-
-    # 🔴 Проверяем — рефинанс ли это
-    loan_option = str(payload.get("loanOption") or field_value_map.get("loanOption") or "").upper()
-    product_type = str(payload.get("offerProductType") or field_value_map.get("offerProductType") or "").upper()
-    offer_code = str(field_value_map.get("offerProductCode") or "").upper()
-
-    is_refinance = (
-            "REFIN" in product_type or
-            offer_code == "REF" or
-            field_value_map.get("isRefinance") is True
-    )
-
-    # --- Если рефинанс, достаём контракт из offer-store ---
-    if is_refinance:
-        print("🔁 Тип продукта: REFINANCE — ищем контракт в ответе offer-store")
-
-        offer_keys = [k for k in endpoint_response_map.keys() if k.startswith("/agent-api/v1/offer-store/offers")]
-        assert offer_keys, "❌ Нет ответа offer-store — нужно выполнить GET перед этим шагом"
-        offer_keys.sort()
-        offer_store_resp = endpoint_response_map[offer_keys[-1]]
-
-        refinance_contracts = offer_store_resp.get("refinanceContracts", [])
-        assert refinance_contracts, "❌ В ответе offer-store нет refinanceContracts"
-
-        valid_contracts = []
-        for c in refinance_contracts:
-            if not c:
-                continue
-            amount_raw = c.get("amount")
-            try:
-                amount = float(amount_raw)
-            except Exception:
-                try:
-                    amount = float(str(amount_raw).replace(",", "."))
-                except Exception:
-                    continue
-            if 10000 < amount < 4_900_000:
-                valid_contracts.append({
-                    "contractNumber": str(c.get("applicationCode")),
-                    "contractAmount": amount,
-                    "internal": c.get("internal", True),
-                    "bankName": c.get("bankName"),
-                    "bankBranchCode": c.get("branchCode"),
-                    "accountNumber": None,
-                    "bankCode": None
-                })
-
-        assert valid_contracts, "❌ Не найден контракт с amount < 4_900_000 в ответе offer-store"
-
-        chosen = min(valid_contracts, key=lambda x: x["contractAmount"])
-        payload["refinancingContracts"] = [chosen]
-
-        # 💾 сохраняем в field_value_map
-        field_value_map["isRefinance"] = True
-        field_value_map["contractNumber"] = chosen["contractNumber"]
-        field_value_map["contractAmount"] = chosen["contractAmount"]
-        field_value_map["refinancingContracts"] = payload["refinancingContracts"]
-
-        print(f"💾 Выбран контракт: {chosen['contractNumber']} сумма={chosen['contractAmount']}")
-        print("📦 refinancingContracts добавлен в payload:")
-        print(json.dumps(payload["refinancingContracts"], indent=2, ensure_ascii=False))
-    else:
-        print(f"💰 Тип продукта: {product_type or 'CASH_LOAN'} — без блока refinancingContracts")
-
 
 
 @when('Ожидаю когда поле "leadDTO.stateFeature.id" и статус "135"')
@@ -853,7 +843,7 @@ def step_impl(context):
 
     payload = {
         "leadId": lead_id,
-        "iban": "KZ24886D224500007212",   # можно брать из field_value_map
+        "iban": "kz",   # можно брать из field_value_map
         "codeDisbursementChannel": "DEBIT_CARD",
         "bankBranch": None
     }
